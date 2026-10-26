@@ -29,8 +29,13 @@ function setProtection(enabled: boolean) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "SCROOMIN_SET_PROTECTION") {
     setProtection(Boolean(message.enabled));
+    sendResponse({ enabled: Boolean(message.enabled) });
+  } else if (message?.type === "SCROOMIN_GET_PROTECTION") {
+    const overlay = document.getElementById(OVERLAY_ID);
+    sendResponse({ enabled: !!overlay });
   }
+  return true;
 });

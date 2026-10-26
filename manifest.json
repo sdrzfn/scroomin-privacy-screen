@@ -13,10 +13,11 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Open Scroomin Browser"
+    "default_title": "Open Scroomin Browser",
+    "default_popup": "src/popup/popup.html"
   },
   "side_panel": {
-    "default_path": "src/sidepanel.html"
+    "default_path": "src/sidepanel/sidepanel.html"
   },
   "content_scripts": [
     {
