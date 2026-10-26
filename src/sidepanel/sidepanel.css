@@ -1,0 +1,96 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #f4f4f5;
+  background: #111114;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 280px;
+}
+
+.app {
+  padding: 24px 20px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: #ded8ff;
+  color: #211b38;
+  font-weight: 800;
+}
+
+h1, h2, p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 19px;
+}
+
+header p, .protection-card > p:not(.eyebrow) {
+  margin-top: 5px;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.protection-card {
+  padding: 20px;
+  border: 1px solid #303036;
+  border-radius: 18px;
+  background: #19191e;
+}
+
+.eyebrow {
+  margin-bottom: 14px;
+  color: #aaa6c2;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+button {
+  width: 100%;
+  margin-top: 24px;
+  padding: 12px;
+  border: 0;
+  border-radius: 10px;
+  background: #ded8ff;
+  color: #211b38;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button.active {
+  background: #383342;
+  color: white;
+  outline: 1px solid #8274b5;
+}
+
+footer {
+  margin-top: 24px;
+  color: #71717a;
+  font-size: 11px;
+  text-align: center;
+}
