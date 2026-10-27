@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { startAttentionMonitor, type AttentionState } from "../lib/attention";
-import { setActiveTabProtection } from "../lib/protection";
+import { setActiveTabProtection, getActiveTabProtection } from "../lib/protection";
 import "./popup.css";
 
 type Mode = "camera" | "manual";
@@ -37,6 +37,27 @@ function Popup() {
     setTheme(initialTheme);
     applyTheme(initialTheme);
   }, [applyTheme]);
+
+  // Query current protection state on mount
+  useEffect(() => {
+    let mounted = true;
+
+    const checkProtectionState = async () => {
+      const isProtected = await getActiveTabProtection();
+      if (mounted) {
+        setProtectionEnabled(isProtected);
+        if (isProtected) {
+          setStatusMessage("Manual protection: screen covered.");
+        }
+      }
+    };
+
+    checkProtectionState();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleThemeChange = useCallback((newTheme: Theme) => {
     setTheme(newTheme);
