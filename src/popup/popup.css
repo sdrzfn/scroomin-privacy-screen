@@ -156,6 +156,76 @@
   50% { opacity: 1; }
 }
 
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #ef4444;
+}
+
+.error-message svg {
+  flex-shrink: 0;
+}
+
+.permission-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  border-radius: 8px;
+  color: #22d3ee;
+}
+
+.permission-guide svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.permission-guide-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.permission-guide-content strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.permission-guide-content p {
+  margin: 0;
+  font-size: 11px;
+  color: #888;
+  line-height: 1.4;
+}
+
+.permission-guide-btn {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #0f0f12;
+  background: #22d3ee;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.permission-guide-btn:hover {
+  background: #06b6d4;
+}
+
 .popup footer {
   margin-top: auto;
   padding: 14px 20px;
@@ -163,4 +233,13 @@
   font-size: 11px;
   color: #666;
   border-top: 1px solid #2a2a2e;
+}
+
+.camera-preview {
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
 }
