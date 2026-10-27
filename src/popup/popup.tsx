@@ -48,7 +48,7 @@ function Popup() {
     if (!protectionEnabled) return;
 
     const shouldProtect = isCameraMode
-      ? attentionState === "away"
+      ? attentionState === "away" || attentionState === "multiple-faces"
       : forceState ?? true;
 
     const success = await setActiveTabProtection(shouldProtect);
@@ -56,9 +56,13 @@ function Popup() {
     if (!success) {
       setStatusMessage("Could not update this tab. Try refreshing the webpage.");
     } else if (isCameraMode) {
-      setStatusMessage(
-        shouldProtect ? "Screen protected: no face detected." : "Face detected: protection is off."
-      );
+      if (attentionState === "multiple-faces") {
+        setStatusMessage("Screen protected: multiple faces detected.");
+      } else {
+        setStatusMessage(
+          shouldProtect ? "Screen protected: no face detected." : "Face detected: protection is off."
+        );
+      }
     } else {
       setStatusMessage(shouldProtect ? "Manual protection: screen covered." : "Manual protection: screen visible.");
     }
@@ -183,6 +187,7 @@ function Popup() {
     idle: "#6b7280",
     attending: "#22c55e",
     away: "#ef4444",
+    "multiple-faces": "#f59e0b",
     error: "#f59e0b",
   };
 
@@ -190,6 +195,7 @@ function Popup() {
     idle: "Idle",
     attending: "Attending",
     away: "Away",
+    "multiple-faces": "Multiple Faces",
     error: "Error",
   };
 

@@ -7,6 +7,7 @@ export type AttentionState =
   | "idle"
   | "attending"
   | "away"
+  | "multiple-faces"
   | "error";
 
 export type AttentionCallback = (
@@ -25,6 +26,7 @@ export async function startAttentionMonitor(
   let currentState: AttentionState = "idle";
   let awaySince: number | null = null;
   let attendingSince: number | null = null;
+  let multipleFacesSince: number | null = null;
 
   const publish = (state: AttentionState) => {
     if (currentState === state) return;
@@ -78,7 +80,7 @@ export async function startAttentionMonitor(
           delegate: "CPU",
         },
         runningMode: "VIDEO",
-        numFaces: 1,
+        numFaces: 2,
       }
     );
 
@@ -97,10 +99,24 @@ export async function startAttentionMonitor(
           now
         );
 
-        const faceDetected =
-          result.faceLandmarks.length > 0;
+        const faceCount = result.faceLandmarks.length;
+        const multipleFaces = faceCount > 1;
+        const faceDetected = faceCount > 0;
 
-        if (faceDetected) {
+        if (multipleFaces) {
+          awaySince = null;
+          attendingSince = null;
+
+          if (multipleFacesSince === null) {
+            multipleFacesSince = now;
+          }
+
+          // Require a short stable detection before triggering.
+          if (now - multipleFacesSince >= 250) {
+            publish("multiple-faces");
+          }
+        } else if (faceDetected) {
+          multipleFacesSince = null;
           awaySince = null;
 
           if (attendingSince === null) {
@@ -113,6 +129,7 @@ export async function startAttentionMonitor(
           }
         } else {
           attendingSince = null;
+          multipleFacesSince = null;
 
           if (awaySince === null) {
             awaySince = now;
