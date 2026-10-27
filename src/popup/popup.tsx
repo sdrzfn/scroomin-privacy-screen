@@ -229,26 +229,28 @@ function Popup() {
   return (
     <div className="popup">
       <header>
-        <div className="brand">
-          <span className="brand-dot" aria-hidden="true"></span>
-          <div className="brand-text">
-            <h1>Scroomin</h1>
-            <p>Privacy, by design.</p>
+        <div className="header-content">
+          <div className="brand">
+            <span className="brand-dot" aria-hidden="true"></span>
+            <div className="brand-text">
+              <h1>Scroomin</h1>
+              <p>Privacy, by design.</p>
+            </div>
           </div>
+          <button
+            className="theme-toggle"
+            onClick={() => {
+              const themes: Theme[] = ["light", "dark", "system"];
+              const currentIndex = themes.indexOf(theme);
+              const nextTheme = themes[(currentIndex + 1) % themes.length];
+              handleThemeChange(nextTheme);
+            }}
+            aria-label={`Current theme: ${themeLabels[theme]}. Click to cycle.`}
+            title={`Theme: ${themeLabels[theme]}`}
+          >
+            {themeIcons[theme]}
+          </button>
         </div>
-        <button
-          className="theme-toggle"
-          onClick={() => {
-            const themes: Theme[] = ["light", "dark", "system"];
-            const currentIndex = themes.indexOf(theme);
-            const nextTheme = themes[(currentIndex + 1) % themes.length];
-            handleThemeChange(nextTheme);
-          }}
-          aria-label={`Current theme: ${themeLabels[theme]}. Click to cycle.`}
-          title={`Theme: ${themeLabels[theme]}`}
-        >
-          {themeIcons[theme]}
-        </button>
       </header>
 
       <main>
