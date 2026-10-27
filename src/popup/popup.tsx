@@ -5,6 +5,7 @@ import { setActiveTabProtection } from "../lib/protection";
 import "./popup.css";
 
 type Mode = "camera" | "manual";
+type Theme = "light" | "dark" | "system";
 
 function Popup() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -17,8 +18,31 @@ function Popup() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [showPermissionGuide, setShowPermissionGuide] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [theme, setTheme] = useState<Theme>("system");
   const isCameraMode = protectionEnabled && mode === "camera";
   const isManualMode = protectionEnabled && mode === "manual";
+
+  const applyTheme = useCallback((newTheme: Theme) => {
+    const root = document.documentElement;
+    if (newTheme === "system") {
+      root.removeAttribute("data-theme");
+    } else {
+      root.setAttribute("data-theme", newTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("scroomin-theme") as Theme | null;
+    const initialTheme = stored ?? "system";
+    setTheme(initialTheme);
+    applyTheme(initialTheme);
+  }, [applyTheme]);
+
+  const handleThemeChange = useCallback((newTheme: Theme) => {
+    setTheme(newTheme);
+    localStorage.setItem("scroomin-theme", newTheme);
+    applyTheme(newTheme);
+  }, [applyTheme]);
 
   const applyProtection = useCallback(async (forceState?: boolean) => {
     if (!protectionEnabled) return;
@@ -169,6 +193,39 @@ function Popup() {
     error: "Error",
   };
 
+  const themeIcons = {
+    light: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+    ),
+    dark: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+    ),
+    system: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+        <path d="M8 21h8M12 17v4"></path>
+      </svg>
+    ),
+  };
+
+  const themeLabels: Record<Theme, string> = {
+    light: "Light",
+    dark: "Dark",
+    system: "System",
+  };
+
   return (
     <div className="popup">
       <header>
@@ -179,6 +236,19 @@ function Popup() {
             <p>Privacy, by design.</p>
           </div>
         </div>
+        <button
+          className="theme-toggle"
+          onClick={() => {
+            const themes: Theme[] = ["light", "dark", "system"];
+            const currentIndex = themes.indexOf(theme);
+            const nextTheme = themes[(currentIndex + 1) % themes.length];
+            handleThemeChange(nextTheme);
+          }}
+          aria-label={`Current theme: ${themeLabels[theme]}. Click to cycle.`}
+          title={`Theme: ${themeLabels[theme]}`}
+        >
+          {themeIcons[theme]}
+        </button>
       </header>
 
       <main>
