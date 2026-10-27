@@ -146,7 +146,7 @@
 
 .popup {
   width: 320px;
-  min-height: 380px;
+  min-height: 500px;
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
   background: var(--bg-primary);
