@@ -10,6 +10,7 @@ type Theme = "light" | "dark" | "system";
 function Popup() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopMonitorRef = useRef<(() => void) | null>(null);
+
   const [protectionEnabled, setProtectionEnabled] = useState(false);
   const [mode, setMode] = useState<Mode>("camera");
   const [attentionState, setAttentionState] = useState<AttentionState>("idle");
@@ -19,6 +20,7 @@ function Popup() {
   const [showPermissionGuide, setShowPermissionGuide] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
+
   const isCameraMode = protectionEnabled && mode === "camera";
   const isManualMode = protectionEnabled && mode === "manual";
 
@@ -38,7 +40,12 @@ function Popup() {
     applyTheme(initialTheme);
   }, [applyTheme]);
 
-  // Query current protection state on mount
+  const handleThemeChange = useCallback((newTheme: Theme) => {
+    setTheme(newTheme);
+    localStorage.setItem("scroomin-theme", newTheme);
+    applyTheme(newTheme);
+  }, [applyTheme]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -58,12 +65,6 @@ function Popup() {
       mounted = false;
     };
   }, []);
-
-  const handleThemeChange = useCallback((newTheme: Theme) => {
-    setTheme(newTheme);
-    localStorage.setItem("scroomin-theme", newTheme);
-    applyTheme(newTheme);
-  }, [applyTheme]);
 
   const applyProtection = useCallback(async (forceState?: boolean) => {
     if (!protectionEnabled) return;
@@ -118,9 +119,20 @@ function Popup() {
     setStatusMessage("Requesting camera access...");
 
     try {
-      const stop = await startAttentionMonitor(video, (nextState) => {
-        setAttentionState(nextState);
-      });
+      const stop = await startAttentionMonitor(
+        video,
+        (nextState) => {
+          setAttentionState(nextState);
+        },
+        {
+          modelAssetPath: chrome.runtime.getURL("models/face_landmarker.task"),
+          wasmPath: chrome.runtime.getURL("wasm"),
+          facingMode: "user",
+          width: 640,
+          height: 480,
+          frameRate: 15,
+        }
+      );
 
       stopMonitorRef.current = stop;
       setMode("camera");
@@ -254,7 +266,7 @@ function Popup() {
   };
 
   return (
-    <div className="popup">
+    <div className="popup" data-theme={theme}>
       <header>
         <div className="header-content">
           <div className="brand">
@@ -422,7 +434,7 @@ function Popup() {
       </main>
 
       <footer>
-        Local-first privacy · Camera detection running locally
+        Local-first privacy · Seamless camera detection
       </footer>
 
       <video ref={videoRef} muted playsInline className="camera-preview" />

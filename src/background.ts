@@ -1,6 +1,6 @@
 chrome.runtime.onInstalled.addListener(() => {
   console.log("Scroomin Browser installed");
-})
+});
 
 // --- INI DIGUNAKAN UNTUK SIDEPANEL ---
 // chrome.sidePanel.setPanelBehavior({

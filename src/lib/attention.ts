@@ -14,12 +14,72 @@ export type AttentionCallback = (
   state: AttentionState
 ) => void;
 
+export interface DetectionResult {
+  faceCount: number;
+  multipleFaces: boolean;
+  faceDetected: boolean;
+}
+
+export interface AttentionMonitorConfig {
+  modelAssetPath: string;
+  wasmPath: string;
+  facingMode?: "user" | "environment";
+  width?: number;
+  height?: number;
+  frameRate?: number;
+}
+
+let vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>> | null = null;
+let landmarker: FaceLandmarker | null = null;
+
+export async function initializeVision(
+  wasmPath: string,
+  modelAssetPath: string
+): Promise<void> {
+  if (vision && landmarker) return;
+
+  vision = await FilesetResolver.forVisionTasks(wasmPath);
+
+  landmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath,
+      delegate: "CPU",
+    },
+    runningMode: "VIDEO",
+    numFaces: 2,
+  });
+}
+
+export function detectFaces(
+  video: HTMLVideoElement,
+  timestamp: number
+): DetectionResult | null {
+  if (!landmarker || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0) {
+    return null;
+  }
+
+  const result = landmarker.detectForVideo(video, timestamp);
+  const faceCount = result.faceLandmarks.length;
+
+  return {
+    faceCount,
+    multipleFaces: faceCount > 1,
+    faceDetected: faceCount > 0,
+  };
+}
+
+export function closeVision(): void {
+  landmarker?.close();
+  landmarker = null;
+  vision = null;
+}
+
 export async function startAttentionMonitor(
   video: HTMLVideoElement,
-  onStateChange: AttentionCallback
+  onStateChange: AttentionCallback,
+  config: AttentionMonitorConfig
 ): Promise<() => void> {
   let stream: MediaStream | null = null;
-  let landmarker: FaceLandmarker | null = null;
   let animationId = 0;
   let stopped = false;
 
@@ -30,20 +90,18 @@ export async function startAttentionMonitor(
 
   const publish = (state: AttentionState) => {
     if (currentState === state) return;
-
     currentState = state;
     onStateChange(state);
   };
 
   try {
-    // Request camera access only after the user starts monitoring.
     stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
-        facingMode: "user",
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 15, max: 24 },
+        facingMode: config.facingMode ?? "user",
+        width: { ideal: config.width ?? 640 },
+        height: { ideal: config.height ?? 480 },
+        frameRate: { ideal: config.frameRate ?? 15, max: config.frameRate ?? 24 },
       },
     });
 
@@ -58,50 +116,24 @@ export async function startAttentionMonitor(
 
     await video.play();
 
-    const modelUrl = chrome.runtime.getURL("models/face_landmarker.task");
-    const wasmUrl = chrome.runtime.getURL("wasm");
-    console.log("Scroomin: Model URL:", modelUrl);
-    console.log("Scroomin: WASM URL:", wasmUrl);
-
-    // Verify model file is accessible
-    const modelCheck = await fetch(modelUrl, { method: "HEAD" });
-    if (!modelCheck.ok) {
-      throw new Error(`Model file not accessible: ${modelCheck.status} ${modelCheck.statusText}`);
-    }
-    console.log("Scroomin: Model file verified accessible");
-
-    const vision = await FilesetResolver.forVisionTasks(wasmUrl);
-
-    landmarker = await FaceLandmarker.createFromOptions(
-      vision,
-      {
-        baseOptions: {
-          modelAssetPath: modelUrl,
-          delegate: "CPU",
-        },
-        runningMode: "VIDEO",
-        numFaces: 2,
-      }
-    );
+    await initializeVision(config.wasmPath, config.modelAssetPath);
 
     const loop = () => {
       if (stopped || !landmarker) return;
 
-      // Wait until the video has actual frames.
       if (
         video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
         video.videoWidth > 0
       ) {
         const now = performance.now();
+        const detection = detectFaces(video, now);
 
-        const result = landmarker.detectForVideo(
-          video,
-          now
-        );
+        if (!detection) {
+          animationId = requestAnimationFrame(loop);
+          return;
+        }
 
-        const faceCount = result.faceLandmarks.length;
-        const multipleFaces = faceCount > 1;
-        const faceDetected = faceCount > 0;
+        const { multipleFaces, faceDetected } = detection;
 
         if (multipleFaces) {
           awaySince = null;
@@ -111,7 +143,6 @@ export async function startAttentionMonitor(
             multipleFacesSince = now;
           }
 
-          // Require a short stable detection before triggering.
           if (now - multipleFacesSince >= 250) {
             publish("multiple-faces");
           }
@@ -123,7 +154,6 @@ export async function startAttentionMonitor(
             attendingSince = now;
           }
 
-          // Require a short stable detection before restoring.
           if (now - attendingSince >= 250) {
             publish("attending");
           }
@@ -135,7 +165,6 @@ export async function startAttentionMonitor(
             awaySince = now;
           }
 
-          // Require sustained absence to avoid flickering.
           if (now - awaySince >= 700) {
             publish("away");
           }
@@ -147,29 +176,19 @@ export async function startAttentionMonitor(
 
     animationId = requestAnimationFrame(loop);
 
-    // The caller uses this function to stop the camera and detector.
     return () => {
       stopped = true;
       cancelAnimationFrame(animationId);
 
       stream?.getTracks().forEach((track) => track.stop());
       video.srcObject = null;
-
-      landmarker?.close();
-      landmarker = null;
     };
   } catch (error) {
     stopped = true;
-
     stream?.getTracks().forEach((track) => track.stop());
     video.srcObject = null;
-
-    landmarker?.close();
-    landmarker = null;
-
     console.error("Scroomin attention monitor error:", error);
     onStateChange("error");
-
     throw error;
   }
 }

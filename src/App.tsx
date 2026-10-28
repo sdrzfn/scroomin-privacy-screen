@@ -66,6 +66,14 @@ export default function App() {
         video,
         (nextState) => {
           setAttentionState(nextState);
+        },
+        {
+          modelAssetPath: chrome.runtime.getURL("models/face_landmarker.task"),
+          wasmPath: chrome.runtime.getURL("wasm"),
+          facingMode: "user",
+          width: 640,
+          height: 480,
+          frameRate: 15,
         }
       );
 
