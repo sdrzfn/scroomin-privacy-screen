@@ -7,7 +7,63 @@ const LOCK_SVG = `
 </svg>
 `;
 
+// Inject styles for the overlay (including ::before blur layer)
+function injectOverlayStyles() {
+  if (document.getElementById("__scroomin_overlay_styles__")) return;
+
+  const style = document.createElement("style");
+  style.id = "__scroomin_overlay_styles__";
+  style.textContent = `
+    #${OVERLAY_ID} {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      gap: 16px;
+      color: #ffffff;
+      font: 500 16px system-ui;
+    }
+
+    #${OVERLAY_ID}::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 15, 18, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: -1;
+    }
+
+    #${OVERLAY_ID} .lock-icon {
+      width: 64px;
+      height: 64px;
+      color: #fb7185;
+      opacity: 0.9;
+      filter: drop-shadow(0 0 12px rgba(251, 113, 133, 0.5));
+      transition: transform 0.3s ease-out;
+      flex-shrink: 0;
+    }
+
+    #${OVERLAY_ID} .overlay-text {
+      font-size: 14px;
+      color: #a1a1aa;
+      letter-spacing: 0.02em;
+      text-align: center;
+      max-width: 80%;
+    }
+  `;
+  document.documentElement.appendChild(style);
+}
+
 function setProtection(enabled: boolean) {
+  injectOverlayStyles();
+
   let overlay = document.getElementById(OVERLAY_ID);
 
   if (enabled) {
@@ -15,41 +71,13 @@ function setProtection(enabled: boolean) {
       overlay = document.createElement("div");
       overlay.id = OVERLAY_ID;
 
-      Object.assign(overlay.style, {
-        position: "fixed",
-        inset: "0",
-        zIndex: "2147483647",
-        background: "#101014",
-        color: "#ffffff",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        font: "500 16px system-ui",
-        pointerEvents: "auto",
-        opacity: "0",
-        transition: "opacity 0.3s ease-in-out",
-        gap: "16px",
-      });
-
       const lockIcon = document.createElement("div");
+      lockIcon.className = "lock-icon";
       lockIcon.innerHTML = LOCK_SVG;
-      Object.assign(lockIcon.style, {
-        width: "64px",
-        height: "64px",
-        color: "#22d3ee",
-        opacity: "0.9",
-        filter: "drop-shadow(0 0 12px rgba(34, 211, 238, 0.5))",
-        transition: "transform 0.3s ease-out",
-      });
 
       const text = document.createElement("span");
+      text.className = "overlay-text";
       text.textContent = "Scroomin - Screen protected";
-      Object.assign(text.style, {
-        fontSize: "14px",
-        color: "#a1a1aa",
-        letterSpacing: "0.02em",
-      });
 
       overlay.appendChild(lockIcon);
       overlay.appendChild(text);
@@ -63,7 +91,7 @@ function setProtection(enabled: boolean) {
   } else if (overlay) {
     // Fade out animation
     overlay.style.opacity = "0";
-    const lockIcon = overlay.querySelector("div");
+    const lockIcon = overlay.querySelector(".lock-icon");
     if (lockIcon) {
       (lockIcon as HTMLElement).style.transform = "scale(0.9)";
     }
