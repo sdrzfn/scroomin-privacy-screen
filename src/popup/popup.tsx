@@ -258,7 +258,12 @@ function Popup() {
       <header>
         <div className="header-content">
           <div className="brand">
-            <span className="brand-dot" aria-hidden="true"></span>
+            <img
+              src="/icons/logo_scroomin.png"
+              alt="Scroomin"
+              className="brand-logo"
+              aria-hidden="true"
+            />
             <div className="brand-text">
               <h1>Scroomin</h1>
               <p>Privacy, by design.</p>
