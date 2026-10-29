@@ -59,7 +59,7 @@ Extensions installed from the Chrome Web Store update automatically.
 The release build is a ready-to-use package, so you do not need Node.js or any build tools.
 
 1. Go to the Releases page of this repository:
-   `https://github.com/<your-username>/scroomin/releases`
+   `https://github.com/sdrzfn/scroomin-privacy-screen/releases`
 2. Download the latest build pack, for example `scroomin-v0.1.0.zip`, from the **Assets** section of the newest release.
 3. Extract the zip file into a folder you will keep, for example `Documents/scroomin`. Do not delete this folder afterwards, because Chrome loads the extension directly from it.
 4. Open Chrome and go to `chrome://extensions`.
@@ -114,7 +114,7 @@ npm --version
 ### Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/scroomin.git
+git clone https://github.com/sdrzfn/scroomin-privacy-screen.git
 cd scroomin
 ```
 
@@ -184,7 +184,7 @@ Set the theme with the button in the popup header. The System option follows you
 
 This is an early release, so feedback is very welcome. If you run into a problem, please open an issue on the repository:
 
-`https://github.com/<your-username>/scroomin/issues`
+`https://github.com/sdrzfn/scroomin-privacy-screen/issues`
 
 When reporting a bug, please include:
 
@@ -194,8 +194,8 @@ When reporting a bug, please include:
 - The steps to reproduce the problem and what you expected to happen
 - Any error message shown in the popup, or in the browser console
 
-You can also contact me directly at `<YOUR_CONTACT_EMAIL>`.
+You can also contact me directly at `sadrakhxvid777@gmail.com`.
 
 ## License
 
-`<LICENSE_NAME>`. See the `LICENSE` file for details.
+There is no license yet for this project.
