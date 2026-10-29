@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { startAttentionMonitor, type AttentionState } from "../lib/attention";
 import { setActiveTabProtection, getActiveTabProtection } from "../lib/protection";
@@ -6,6 +6,187 @@ import "./popup.css";
 
 type Mode = "camera" | "manual";
 type Theme = "light" | "dark" | "system";
+type ViewState = "off" | "starting" | "attending" | "away" | "multiple" | "error" | "manual";
+
+/** One source of truth: used for the camera config and for the readout in the UI. */
+const CAMERA = { facingMode: "user", width: 640, height: 480, frameRate: 15 } as const;
+
+const STATE_LABELS: Record<ViewState, string> = {
+  off: "Off",
+  starting: "Starting",
+  attending: "Attending",
+  away: "Away",
+  multiple: "Multiple faces",
+  error: "Camera error",
+  manual: "Manual",
+};
+
+const MODE_HINTS: Record<Mode, string> = {
+  camera: "Covers the tab when you look away or someone else appears.",
+  manual: "Covers the tab until you turn protection off.",
+};
+
+const POLICY_ITEMS: Array<[string, string]> = [
+  ["No data collection.", "We do not collect, store, or transmit any personal data."],
+  ["No camera recordings.", "Camera frames are processed locally in your browser and never saved or uploaded."],
+  ["No face data stored.", "Face landmarks are computed in real-time and discarded immediately after each frame."],
+  ["Local-first.", "All detection runs on your device using MediaPipe. Nothing leaves your machine."],
+  ["Permission-based.", 'Camera access is only requested when you explicitly enable "Auto" mode.'],
+  ["Open source.", "This extension is transparent about its operations."],
+];
+
+/* ---------- Icons ---------- */
+
+const ICONS = {
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </>
+  ),
+  moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />,
+  system: (
+    <>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </>
+  ),
+  shield: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
+  camera: (
+    <>
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </>
+  ),
+  manual: (
+    <>
+      <rect x="2" y="7" width="20" height="10" rx="5" />
+      <circle cx="16" cy="12" r="2.5" />
+    </>
+  ),
+  chevron: <polyline points="6 9 12 15 18 9" />,
+  lock: (
+    <>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </>
+  ),
+  alert: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4M12 16h.01" />
+    </>
+  ),
+} satisfies Record<string, ReactNode>;
+
+function Icon({ name, size = 16, className }: { name: keyof typeof ICONS; size?: number; className?: string }) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {ICONS[name]}
+    </svg>
+  );
+}
+
+/* ---------- Viewfinder glyph ---------- */
+
+const LANDMARKS: Array<[number, number]> = [
+  [48, 24], [38, 35], [58, 35], [41, 43], [55, 43], [48, 51],
+  [35, 53], [61, 53], [41, 61], [48, 64], [55, 61], [48, 73],
+];
+
+function Glyph({ state }: { state: ViewState }) {
+  let body: ReactNode;
+
+  switch (state) {
+    case "attending":
+      body = (
+        <>
+          <ellipse cx="48" cy="48" rx="19" ry="25" />
+          <g fill="currentColor" stroke="none">
+            {LANDMARKS.map(([x, y]) => (
+              <circle key={`${x}-${y}`} cx={x} cy={y} r="1.6" />
+            ))}
+          </g>
+        </>
+      );
+      break;
+    case "multiple":
+      body = (
+        <>
+          <ellipse cx="36" cy="51" rx="14" ry="19" />
+          <ellipse cx="60" cy="46" rx="14" ry="19" />
+          <g fill="currentColor" stroke="none">
+            <circle cx="31" cy="47" r="1.6" />
+            <circle cx="41" cy="47" r="1.6" />
+            <circle cx="36" cy="59" r="1.6" />
+            <circle cx="55" cy="42" r="1.6" />
+            <circle cx="65" cy="42" r="1.6" />
+            <circle cx="60" cy="54" r="1.6" />
+          </g>
+        </>
+      );
+      break;
+    case "away":
+      body = (
+        <>
+          <ellipse cx="48" cy="48" rx="19" ry="25" strokeDasharray="3 4" />
+          <rect x="25" y="43" width="46" height="10" rx="2" fill="currentColor" stroke="none" />
+        </>
+      );
+      break;
+    case "manual":
+      body = (
+        <>
+          <rect x="30" y="44" width="36" height="28" rx="5" />
+          <path d="M38 44v-8a10 10 0 0 1 20 0v8" />
+          <circle cx="48" cy="57" r="3" fill="currentColor" stroke="none" />
+          <path d="M48 60v5" />
+        </>
+      );
+      break;
+    case "error":
+      body = (
+        <>
+          <ellipse cx="48" cy="48" rx="19" ry="25" strokeDasharray="3 4" />
+          <path d="M48 36v14" />
+          <circle cx="48" cy="59" r="1.8" fill="currentColor" stroke="none" />
+        </>
+      );
+      break;
+    default:
+      // off, starting
+      body = <ellipse cx="48" cy="48" rx="19" ry="25" strokeDasharray="3 4" />;
+  }
+
+  return (
+    <svg
+      className="vf-glyph"
+      viewBox="0 0 96 96"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M48 6v8M48 82v8M6 48h8M82 48h8" opacity="0.45" />
+      {body}
+    </svg>
+  );
+}
+
+/* ---------- Popup ---------- */
 
 function Popup() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -18,7 +199,6 @@ function Popup() {
   const [loading, setLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [showPermissionGuide, setShowPermissionGuide] = useState(false);
-  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
 
   const isCameraMode = protectionEnabled && mode === "camera";
@@ -45,6 +225,11 @@ function Popup() {
     localStorage.setItem("scroomin-theme", newTheme);
     applyTheme(newTheme);
   }, [applyTheme]);
+
+  const cycleTheme = () => {
+    const themes: Theme[] = ["light", "dark", "system"];
+    handleThemeChange(themes[(themes.indexOf(theme) + 1) % themes.length]);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -127,10 +312,7 @@ function Popup() {
         {
           modelAssetPath: chrome.runtime.getURL("models/face_landmarker.task"),
           wasmPath: chrome.runtime.getURL("wasm"),
-          facingMode: "user",
-          width: 640,
-          height: 480,
-          frameRate: 15,
+          ...CAMERA,
         }
       );
 
@@ -149,7 +331,8 @@ function Popup() {
         setShowPermissionGuide(true);
         setStatusMessage("Camera permission denied. Please allow camera access.");
       } else {
-        setStatusMessage(`Unable to start camera: ${msg}. Check permission and model files.`);
+        // The raw message is shown in the error notice below, not repeated here.
+        setStatusMessage("Couldn't start the camera.");
       }
     } finally {
       setLoading(false);
@@ -216,226 +399,170 @@ function Popup() {
     startCameraMonitoring();
   };
 
-  const statusColors = {
-    idle: "#6b7280",
-    attending: "#22c55e",
-    away: "#ef4444",
-    "multiple-faces": "#f59e0b",
-    error: "#f59e0b",
-  };
+  // Single value that drives the viewfinder (glyph, color, label, scan line).
+  const viewState: ViewState = loading
+    ? "starting"
+    : attentionState === "error" && !protectionEnabled
+      ? "error"
+      : !protectionEnabled
+        ? "off"
+        : isManualMode
+          ? "manual"
+          : attentionState === "attending"
+            ? "attending"
+            : attentionState === "away"
+              ? "away"
+              : attentionState === "multiple-faces"
+                ? "multiple"
+                : "starting";
 
-  const statusLabels: Record<AttentionState, string> = {
-    idle: "Idle",
-    attending: "Attending",
-    away: "Away",
-    "multiple-faces": "Multiple Faces",
-    error: "Error",
-  };
-
-  const themeIcons = {
-    light: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <circle cx="12" cy="12" r="5"></circle>
-        <line x1="12" y1="1" x2="12" y2="3"></line>
-        <line x1="12" y1="21" x2="12" y2="23"></line>
-        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-        <line x1="1" y1="12" x2="3" y2="12"></line>
-        <line x1="21" y1="12" x2="23" y2="12"></line>
-        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-      </svg>
-    ),
-    dark: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-      </svg>
-    ),
-    system: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-        <path d="M8 21h8M12 17v4"></path>
-      </svg>
-    ),
-  };
-
-  const themeLabels: Record<Theme, string> = {
-    light: "Light",
-    dark: "Dark",
-    system: "System",
-  };
+  const themeIcon = theme === "light" ? "sun" : theme === "dark" ? "moon" : "system";
+  const themeLabel = theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System";
 
   return (
-    <div className="popup" data-theme={theme}>
-      <header>
-        <div className="header-content">
-          <div className="brand">
-            <img
-              src="/icons/logo_scroomin.png"
-              alt="Scroomin"
-              className="brand-logo"
-              aria-hidden="true"
-            />
-            <div className="brand-text">
-              <h1>Scroomin</h1>
-              <p>Privacy, by design.</p>
-            </div>
+    <div className="popup">
+      <header className="top">
+        <div className="brand">
+          <img src="/icons/logo_scroomin.png" alt="" className="brand-logo" aria-hidden="true" />
+          <div>
+            <h1>Scroomin</h1>
+            <p>Privacy, by design.</p>
           </div>
-          <button
-            className="theme-toggle"
-            onClick={() => {
-              const themes: Theme[] = ["light", "dark", "system"];
-              const currentIndex = themes.indexOf(theme);
-              const nextTheme = themes[(currentIndex + 1) % themes.length];
-              handleThemeChange(nextTheme);
-            }}
-            aria-label={`Current theme: ${themeLabels[theme]}. Click to cycle.`}
-            title={`Theme: ${themeLabels[theme]}`}
-          >
-            {themeIcons[theme]}
-          </button>
         </div>
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={cycleTheme}
+          aria-label={`Theme: ${themeLabel}. Click to change.`}
+          title={`Theme: ${themeLabel}`}
+        >
+          <Icon name={themeIcon} />
+        </button>
       </header>
 
       <main>
-        <section className="master-toggle-section">
-          <label className="master-toggle">
-            <div className="master-toggle-info">
-              <span className="master-toggle-icon" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                </svg>
-              </span>
-              <div>
-                <strong>Protection</strong>
-                <span>{protectionEnabled ? "Active" : "Off"}</span>
-              </div>
+        <section className="vf" data-state={viewState} aria-label="Protection status">
+          <div className="vf-stage">
+            <span className="vf-corner tl" aria-hidden="true" />
+            <span className="vf-corner tr" aria-hidden="true" />
+            <span className="vf-corner bl" aria-hidden="true" />
+            <span className="vf-corner br" aria-hidden="true" />
+            <Glyph state={viewState} />
+            <span className="vf-scan" aria-hidden="true" />
+          </div>
+
+          <div className="vf-readout" role={viewState === "error" ? "alert" : "status"}>
+            <div className="vf-head">
+              <span className="vf-state">{STATE_LABELS[viewState]}</span>
+              {isCameraMode && (
+                <span className="vf-live">
+                  <span className="vf-live-dot" aria-hidden="true" />
+                  Camera on
+                </span>
+              )}
             </div>
-            <button
-              className={`toggle-switch ${protectionEnabled ? "on" : ""}`}
-              onClick={() => handleProtectionToggle(!protectionEnabled)}
-              disabled={loading}
-              aria-pressed={protectionEnabled}
-              aria-label={protectionEnabled ? "Disable protection" : "Enable protection"}
-            >
-              <span className="toggle-thumb" aria-hidden="true"></span>
-              <span className="toggle-track" aria-hidden="true"></span>
-            </button>
-          </label>
+            <p className="vf-message">{statusMessage}</p>
+          </div>
+
+          <dl className="vf-meta">
+            <div>
+              <dt>Feed</dt>
+              <dd>{isCameraMode ? `${CAMERA.width}×${CAMERA.height}, ${CAMERA.frameRate} fps` : "Not in use"}</dd>
+            </div>
+            <div>
+              <dt>Processing</dt>
+              <dd>On-device</dd>
+            </div>
+          </dl>
         </section>
 
+        <button
+          type="button"
+          role="switch"
+          aria-checked={protectionEnabled}
+          className="master"
+          onClick={() => handleProtectionToggle(!protectionEnabled)}
+          disabled={loading}
+        >
+          <span className="master-icon">
+            <Icon name="shield" size={18} />
+          </span>
+          <span className="master-text">
+            <strong>Protection</strong>
+            <span>{protectionEnabled ? "Active" : "Covers the tab when you look away"}</span>
+          </span>
+          <span className="switch" aria-hidden="true" />
+        </button>
+
+        {showPermissionGuide && (
+          <div className="notice guide" role="alert">
+            <Icon name="camera" size={18} />
+            <div>
+              <strong>Camera access needed</strong>
+              <p>Click "Allow" in the browser prompt at the top-left to enable face detection.</p>
+              <button type="button" className="notice-btn" onClick={handlePermissionGuideAction}>
+                Try again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {cameraError && !showPermissionGuide && (
+          <div className="notice error" role="alert">
+            <Icon name="alert" size={18} />
+            <div>
+              <strong>Couldn't start the camera</strong>
+              <p>Check the camera permission and that the model files are bundled.</p>
+              <code>{cameraError}</code>
+            </div>
+          </div>
+        )}
+
         {protectionEnabled && (
-          <section className="mode-section">
-            <div className="mode-label">Mode</div>
-            <div className="segmented-control" role="radiogroup" aria-label="Protection mode">
+          <div className="mode">
+            <div className="segmented" role="radiogroup" aria-label="Protection mode">
               <button
+                type="button"
                 role="radio"
                 aria-checked={mode === "camera"}
-                className={`segment ${mode === "camera" ? "active" : ""}`}
+                className="segment"
                 onClick={() => handleModeChange("camera")}
                 disabled={loading}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                  <circle cx="12" cy="12" r="4"></circle>
-                </svg>
-                <span>Auto (Camera)</span>
+                <Icon name="camera" />
+                <span>Auto</span>
               </button>
               <button
+                type="button"
                 role="radio"
                 aria-checked={mode === "manual"}
-                className={`segment ${mode === "manual" ? "active" : ""}`}
+                className="segment"
                 onClick={() => handleModeChange("manual")}
                 disabled={loading}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                  <path d="M8 21h8M12 17v4"></path>
-                </svg>
+                <Icon name="manual" />
                 <span>Manual</span>
               </button>
             </div>
-
-            {isCameraMode && (
-              <div className="mode-status-indicator">
-                <span className="status-dot" style={{ background: statusColors[attentionState] }} aria-hidden="true"></span>
-                <span>{statusLabels[attentionState]}</span>
-              </div>
-            )}
-
-            {isManualMode && (
-              <div className="mode-status-indicator manual">
-                <span className="status-dot" style={{ background: "#22c55e" }} aria-hidden="true"></span>
-                <span>Manual Active</span>
-              </div>
-            )}
-
-            {showPermissionGuide && (
-              <div className="permission-guide" role="alert">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                </svg>
-                <div className="permission-guide-content">
-                  <strong>Camera access needed</strong>
-                  <p>Click "Allow" in the browser prompt at the top-left to enable face detection.</p>
-                </div>
-                <button className="permission-guide-btn" onClick={handlePermissionGuideAction}>
-                  Try Again
-                </button>
-              </div>
-            )}
-
-            {cameraError && !showPermissionGuide && (
-              <div className="error-message" role="alert">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="8" x2="12" y2="12"></line>
-                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                </svg>
-                <span>Camera error: {cameraError}</span>
-              </div>
-            )}
-
-            {loading && <div className="loading" aria-live="polite">Starting…</div>}
-          </section>
+            <p className="mode-hint">{MODE_HINTS[mode]}</p>
+          </div>
         )}
 
-        <section className="status-section">
-          <div className="status-row">
-            <span className="status-label">Status</span>
-            <span className={`status-value ${protectionEnabled ? "active" : ""}`}>
-              {!protectionEnabled ? "Off" : isCameraMode ? statusLabels[attentionState] : "Manual Active"}
-            </span>
-          </div>
-          <p className="status-message">{statusMessage}</p>
-        </section>
-
-        <details className="privacy-policy" open={showPrivacyPolicy}>
-          <summary onClick={() => setShowPrivacyPolicy(!showPrivacyPolicy)}>
-            <span>Privacy Policy</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
+        <details className="policy">
+          <summary>
+            <Icon name="lock" />
+            <span>Privacy policy</span>
+            <Icon name="chevron" className="chev" />
           </summary>
-          <div className="privacy-policy-content">
-            <h4>Your Privacy, Our Priority</h4>
-            <ul>
-              <li><strong>No data collection:</strong> We do not collect, store, or transmit any personal data.</li>
-              <li><strong>No camera recordings:</strong> Camera frames are processed locally in your browser and never saved or uploaded.</li>
-              <li><strong>No face data stored:</strong> Face landmarks are computed in real-time and discarded immediately after each frame.</li>
-              <li><strong>Local-first:</strong> All detection runs on your device using MediaPipe. Nothing leaves your machine.</li>
-              <li><strong>Permission-based:</strong> Camera access is only requested when you explicitly enable "Auto (Camera)" mode.</li>
-              <li><strong>Open source:</strong> This extension is transparent about its operations.</li>
-            </ul>
-            <p className="privacy-footer">Scroomin respects your privacy. Period.</p>
-          </div>
+          <ul className="policy-body">
+            {POLICY_ITEMS.map(([lead, text]) => (
+              <li key={lead}>
+                <strong>{lead}</strong> {text}
+              </li>
+            ))}
+          </ul>
         </details>
       </main>
-
-      <footer>
-        Local-first privacy · Seamless camera detection
-      </footer>
 
       <video ref={videoRef} muted playsInline className="camera-preview" />
     </div>
