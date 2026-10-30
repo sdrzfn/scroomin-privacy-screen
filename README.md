@@ -4,7 +4,7 @@
 
 Scroomin is a private screen extension for browser use, dedicated to people who wanted more privacy than just meet the eyes.
 
-This is an early release for this product named as version 0.1.0. Please if you have any kind of problems or bugs while running this extension, kindly contact me.
+This is an early release for this product and currently at version 0.1.1. Please if you have any kind of problems or bugs while running this extension, kindly contact me.
 
 ## Table of contents
 
@@ -36,8 +36,10 @@ This is an early release for this product named as version 0.1.0. Please if you 
 
 1. You turn on Protection from the Scroomin popup.
 2. In Auto mode, Scroomin asks for camera permission and reads the camera feed locally using MediaPipe face landmark detection.
-3. The detected state (attending, away, or multiple faces) decides whether the active tab is covered.
-4. Turning protection off stops the camera and uncovers the tab.
+3. It will automatically redirecting to a new page asking for camera permission.
+4. Click on option "Allow while visiting this site".
+5. The detected state (attending, away, or multiple faces) decides whether the active tab is covered.
+6. Turning protection off stops the camera and uncovers the tab.
 
 ## Installation
 
@@ -190,7 +192,7 @@ When reporting a bug, please include:
 
 - Your browser name and version
 - Your operating system
-- The Scroomin version (currently 0.1.0)
+- The Scroomin version (currently 0.1.1)
 - The steps to reproduce the problem and what you expected to happen
 - Any error message shown in the popup, or in the browser console
 
