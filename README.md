@@ -1,16 +1,16 @@
 # Scroomin
 
-[![Version](https://img.shields.io/github/package-json/v/sdrzfn/scroomin-privacy-screen?label=version&filename=scroomin-privacy-screen%2Fpackage.json)](https://github.com/sdrzfn/scroomin-privacy-screen/releases)
+<!-- [![Version](https://img.shields.io/github/package-json/v/sdrzfn/scroomin-privacy-screen?label=version&filename=scroomin-privacy-screen%2Fpackage.json)](https://github.com/sdrzfn/scroomin-privacy-screen/releases) -->
 [![Chrome](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome)](https://github.com/sdrzfn/scroomin-privacy-screen/releases)
-[![Privacy](https://img.shields.io/badge/Privacy-Local%20First-green)](#privacy)
+<!-- [![Privacy](https://img.shields.io/badge/Privacy-Local%20First-green)](#privacy) -->
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/sdrzfn/scroomin-privacy-screen/main/public/icons/logo-scroomin-no-text.png" alt="Scroomin Logo" width="120" height="120">
 </p>
 
-<p align="center">
+<!-- <p align="center">
   <img src="https://raw.githubusercontent.com/sdrzfn/scroomin-privacy-screen/main/public/icons/logo_scroomin.png" alt="Scroomin Banner" width="100%">
-</p>
+</p> -->
 
 ## What is Scroomin?
 
