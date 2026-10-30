@@ -25,4 +25,12 @@ export default defineConfig({
     crx({ manifest }),
     copyPublicFolder(),
   ],
+  build: {
+    rollupOptions: {
+      input: {
+        offscreen: resolve(__dirname, 'src/offscreen/offscreen.html'),
+        permission: resolve(__dirname, 'src/permission/permission.html'),
+      },
+    },
+  },
 })

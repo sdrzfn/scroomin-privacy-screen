@@ -29,8 +29,14 @@ export interface AttentionMonitorConfig {
   frameRate?: number;
 }
 
+/** How long a condition must hold before the state is published (debounce). */
+const ATTEND_AFTER_MS = 250;
+const MULTIPLE_AFTER_MS = 250;
+const AWAY_AFTER_MS = 700;
+
 let vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>> | null = null;
 let landmarker: FaceLandmarker | null = null;
+let initializing: Promise<void> | null = null;
 
 export async function initializeVision(
   wasmPath: string,
@@ -38,16 +44,27 @@ export async function initializeVision(
 ): Promise<void> {
   if (vision && landmarker) return;
 
-  vision = await FilesetResolver.forVisionTasks(wasmPath);
+  if (!initializing) {
+    initializing = (async () => {
+      const fileset = await FilesetResolver.forVisionTasks(wasmPath);
 
-  landmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath,
-      delegate: "CPU",
-    },
-    runningMode: "VIDEO",
-    numFaces: 2,
-  });
+      const instance = await FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath,
+          delegate: "CPU",
+        },
+        runningMode: "VIDEO",
+        numFaces: 2,
+      });
+
+      vision = fileset;
+      landmarker = instance;
+    })().finally(() => {
+      initializing = null;
+    });
+  }
+
+  await initializing;
 }
 
 export function detectFaces(
@@ -79,8 +96,13 @@ export async function startAttentionMonitor(
   onStateChange: AttentionCallback,
   config: AttentionMonitorConfig
 ): Promise<() => void> {
+  const frameRate = config.frameRate ?? 15;
+  // Run detection at the camera's frame rate instead of the display refresh rate.
+  // A timer (not requestAnimationFrame) is used so it keeps running in a hidden offscreen document.
+  const detectIntervalMs = Math.round(1000 / frameRate);
+
   let stream: MediaStream | null = null;
-  let animationId = 0;
+  let timerId: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
 
   let currentState: AttentionState = "idle";
@@ -94,6 +116,23 @@ export async function startAttentionMonitor(
     onStateChange(state);
   };
 
+  const release = () => {
+    stopped = true;
+    clearTimeout(timerId);
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    video.srcObject = null;
+  };
+
+  // The camera was unplugged, taken by another app, or detection threw while running.
+  // Stop and report "error" so the caller can fail closed instead of silently going blind.
+  const fail = (error: unknown) => {
+    if (stopped) return;
+    console.error("Scroomin attention monitor lost the camera:", error);
+    release();
+    publish("error");
+  };
+
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
@@ -101,14 +140,13 @@ export async function startAttentionMonitor(
         facingMode: config.facingMode ?? "user",
         width: { ideal: config.width ?? 640 },
         height: { ideal: config.height ?? 480 },
-        frameRate: { ideal: config.frameRate ?? 15, max: config.frameRate ?? 24 },
+        frameRate: { ideal: frameRate, max: Math.max(frameRate, 24) },
       },
     });
 
-    if (stopped) {
-      stream.getTracks().forEach((track) => track.stop());
-      return () => {};
-    }
+    stream.getVideoTracks().forEach((track) => {
+      track.addEventListener("ended", () => fail(new Error("Camera track ended")));
+    });
 
     video.srcObject = stream;
     video.muted = true;
@@ -118,75 +156,67 @@ export async function startAttentionMonitor(
 
     await initializeVision(config.wasmPath, config.modelAssetPath);
 
-    const loop = () => {
-      if (stopped || !landmarker) return;
+    const tick = () => {
+      if (stopped) return;
 
-      if (
-        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        video.videoWidth > 0
-      ) {
+      try {
         const now = performance.now();
         const detection = detectFaces(video, now);
 
-        if (!detection) {
-          animationId = requestAnimationFrame(loop);
-          return;
-        }
+        if (detection) {
+          const { multipleFaces, faceDetected } = detection;
 
-        const { multipleFaces, faceDetected } = detection;
+          if (multipleFaces) {
+            awaySince = null;
+            attendingSince = null;
 
-        if (multipleFaces) {
-          awaySince = null;
-          attendingSince = null;
+            if (multipleFacesSince === null) {
+              multipleFacesSince = now;
+            }
 
-          if (multipleFacesSince === null) {
-            multipleFacesSince = now;
-          }
+            if (now - multipleFacesSince >= MULTIPLE_AFTER_MS) {
+              publish("multiple-faces");
+            }
+          } else if (faceDetected) {
+            multipleFacesSince = null;
+            awaySince = null;
 
-          if (now - multipleFacesSince >= 250) {
-            publish("multiple-faces");
-          }
-        } else if (faceDetected) {
-          multipleFacesSince = null;
-          awaySince = null;
+            if (attendingSince === null) {
+              attendingSince = now;
+            }
 
-          if (attendingSince === null) {
-            attendingSince = now;
-          }
+            if (now - attendingSince >= ATTEND_AFTER_MS) {
+              publish("attending");
+            }
+          } else {
+            attendingSince = null;
+            multipleFacesSince = null;
 
-          if (now - attendingSince >= 250) {
-            publish("attending");
-          }
-        } else {
-          attendingSince = null;
-          multipleFacesSince = null;
+            if (awaySince === null) {
+              awaySince = now;
+            }
 
-          if (awaySince === null) {
-            awaySince = now;
-          }
-
-          if (now - awaySince >= 700) {
-            publish("away");
+            if (now - awaySince >= AWAY_AFTER_MS) {
+              publish("away");
+            }
           }
         }
+      } catch (error) {
+        fail(error);
+        return;
       }
 
-      animationId = requestAnimationFrame(loop);
+      timerId = setTimeout(tick, detectIntervalMs);
     };
 
-    animationId = requestAnimationFrame(loop);
+    timerId = setTimeout(tick, 0);
 
     return () => {
-      stopped = true;
-      cancelAnimationFrame(animationId);
-
-      stream?.getTracks().forEach((track) => track.stop());
-      video.srcObject = null;
+      release();
+      closeVision();
     };
   } catch (error) {
-    stopped = true;
-    stream?.getTracks().forEach((track) => track.stop());
-    video.srcObject = null;
+    release();
     console.error("Scroomin attention monitor error:", error);
     onStateChange("error");
     throw error;

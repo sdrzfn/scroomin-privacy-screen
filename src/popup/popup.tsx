@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { startAttentionMonitor, type AttentionState } from "../lib/attention";
-import { setActiveTabProtection, getActiveTabProtection } from "../lib/protection";
+import {
+  CAMERA,
+  INITIAL_STATE,
+  PERMISSION_PAGE,
+  STATE_KEY,
+  type Command,
+  type CommandResult,
+  type Mode,
+  type ScroominState,
+} from "../lib/messages";
 import "./popup.css";
 
-type Mode = "camera" | "manual";
 type Theme = "light" | "dark" | "system";
 type ViewState = "off" | "starting" | "attending" | "away" | "multiple" | "error" | "manual";
-
-/** One source of truth: used for the camera config and for the readout in the UI. */
-const CAMERA = { facingMode: "user", width: 640, height: 480, frameRate: 15 } as const;
 
 const STATE_LABELS: Record<ViewState, string> = {
   off: "Off",
@@ -34,6 +38,20 @@ const POLICY_ITEMS: Array<[string, string]> = [
   ["Permission-based.", 'Camera access is only requested when you explicitly enable "Auto" mode.'],
   ["Open source.", "This extension is transparent about its operations."],
 ];
+
+/* ---------- Camera permission ---------- */
+
+type CameraPermission = "granted" | "prompt" | "denied";
+
+/** Reads the camera permission for this extension's origin without triggering a prompt. */
+async function getCameraPermission(): Promise<CameraPermission> {
+  try {
+    const status = await navigator.permissions.query({ name: "camera" as PermissionName });
+    return status.state;
+  } catch {
+    return "prompt";
+  }
+}
 
 /* ---------- Icons ---------- */
 
@@ -188,21 +206,52 @@ function Glyph({ state }: { state: ViewState }) {
 
 /* ---------- Popup ---------- */
 
-function Popup() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const stopMonitorRef = useRef<(() => void) | null>(null);
+function describeState(state: ScroominState): string {
+  if (state.error) {
+    return state.enabled
+      ? "Camera lost. The screen stays covered until you turn protection off."
+      : "Couldn't start the camera.";
+  }
 
-  const [protectionEnabled, setProtectionEnabled] = useState(false);
-  const [mode, setMode] = useState<Mode>("camera");
-  const [attentionState, setAttentionState] = useState<AttentionState>("idle");
-  const [statusMessage, setStatusMessage] = useState("Protection is off.");
+  if (!state.enabled) return "Protection is off.";
+  if (state.mode === "manual") return "Manual protection: screen covered.";
+
+  switch (state.attention) {
+    case "attending":
+      return "Face detected: protection is off.";
+    case "away":
+      return "Screen protected: no face detected.";
+    case "multiple-faces":
+      return "Screen protected: multiple faces detected.";
+    default:
+      return "Looking for a face...";
+  }
+}
+
+async function sendCommand(command: Command): Promise<CommandResult | null> {
+  try {
+    const result = (await chrome.runtime.sendMessage(command)) as CommandResult | undefined;
+    return result ?? null;
+  } catch (error) {
+    console.error("Scroomin: background did not respond:", error);
+    return null;
+  }
+}
+
+function Popup() {
+  // The camera, face detection and protection state live in the background service worker
+  // (and its offscreen document), so they keep running after this popup closes.
+  // This component only displays that state and sends commands.
+  const [state, setState] = useState<ScroominState>(INITIAL_STATE);
   const [loading, setLoading] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [showPermissionGuide, setShowPermissionGuide] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
 
+  const { enabled: protectionEnabled, mode } = state;
   const isCameraMode = protectionEnabled && mode === "camera";
   const isManualMode = protectionEnabled && mode === "manual";
+  const cameraLive = isCameraMode && !state.error;
 
   const applyTheme = useCallback((newTheme: Theme) => {
     const root = document.documentElement;
@@ -231,188 +280,130 @@ function Popup() {
     handleThemeChange(themes[(themes.indexOf(theme) + 1) % themes.length]);
   };
 
+  // Load the current state, then follow every change the background makes.
   useEffect(() => {
     let mounted = true;
 
-    const checkProtectionState = async () => {
-      const isProtected = await getActiveTabProtection();
-      if (mounted) {
-        setProtectionEnabled(isProtected);
-        if (isProtected) {
-          setStatusMessage("Manual protection: screen covered.");
-        }
-      }
+    chrome.storage.session.get(STATE_KEY).then((items) => {
+      const stored = items[STATE_KEY] as ScroominState | undefined;
+      if (mounted && stored) setState(stored);
+    });
+
+    const handleChanged = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string
+    ) => {
+      const next = changes[STATE_KEY]?.newValue as ScroominState | undefined;
+      if (area === "session" && next) setState(next);
     };
 
-    checkProtectionState();
+    chrome.storage.onChanged.addListener(handleChanged);
 
     return () => {
       mounted = false;
+      chrome.storage.onChanged.removeListener(handleChanged);
     };
   }, []);
 
-  const applyProtection = useCallback(async (forceState?: boolean) => {
-    if (!protectionEnabled) return;
+  /**
+   * Chrome does not show the camera prompt for getUserMedia() called from an action popup
+   * or an offscreen document; the call is rejected. The prompt only appears in a full tab,
+   * so we ask from permission.html. Permission is stored per extension origin, so once it is
+   * granted there, the offscreen document can use the camera without any prompt.
+   */
+  const ensureCameraPermission = async (): Promise<boolean> => {
+    const permission = await getCameraPermission();
+    if (permission === "granted") return true;
 
-    const shouldProtect = isCameraMode
-      ? attentionState === "away" || attentionState === "multiple-faces"
-      : forceState ?? true;
+    setShowPermissionGuide(true);
 
-    const success = await setActiveTabProtection(shouldProtect);
-
-    if (!success) {
-      setStatusMessage("Could not update this tab. Try refreshing the webpage.");
-    } else if (isCameraMode) {
-      if (attentionState === "multiple-faces") {
-        setStatusMessage("Screen protected: multiple faces detected.");
-      } else {
-        setStatusMessage(
-          shouldProtect ? "Screen protected: no face detected." : "Face detected: protection is off."
-        );
-      }
+    if (permission === "denied") {
+      setNotice("Camera is blocked for Scroomin. Allow it in Chrome site settings.");
     } else {
-      setStatusMessage(shouldProtect ? "Manual protection: screen covered." : "Manual protection: screen visible.");
+      setNotice("Camera access needed. Allow it in the tab that just opened.");
+      void chrome.tabs.create({ url: chrome.runtime.getURL(PERMISSION_PAGE) });
     }
-  }, [protectionEnabled, isCameraMode, isManualMode, attentionState]);
 
-  useEffect(() => {
-    void applyProtection();
-  }, [applyProtection]);
+    return false;
+  };
 
-  useEffect(() => {
-    if (!isCameraMode) return;
-
-    const handleTabActivated = () => {
-      void applyProtection();
-    };
-
-    chrome.tabs.onActivated.addListener(handleTabActivated);
-
-    return () => {
-      chrome.tabs.onActivated.removeListener(handleTabActivated);
-    };
-  }, [isCameraMode, applyProtection]);
-
-  const startCameraMonitoring = async () => {
-    const video = videoRef.current;
-
-    if (!video || isCameraMode) return;
-
+  const startProtection = async (nextMode: Mode) => {
     setLoading(true);
-    setCameraError(null);
+    setNotice(null);
     setShowPermissionGuide(false);
-    setStatusMessage("Requesting camera access...");
 
     try {
-      const stop = await startAttentionMonitor(
-        video,
-        (nextState) => {
-          setAttentionState(nextState);
-        },
-        {
-          modelAssetPath: chrome.runtime.getURL("models/face_landmarker.task"),
-          wasmPath: chrome.runtime.getURL("wasm"),
-          ...CAMERA,
-        }
-      );
+      if (nextMode === "camera" && !(await ensureCameraPermission())) return;
 
-      stopMonitorRef.current = stop;
-      setMode("camera");
-      setProtectionEnabled(true);
-      setStatusMessage("Camera monitoring started.");
-    } catch (error) {
-      console.error("Scroomin camera error:", error);
-      setProtectionEnabled(false);
-      setAttentionState("error");
-      const msg = error instanceof Error ? error.message : "Unknown error";
-      setCameraError(msg);
+      const result = await sendCommand({ type: "SCROOMIN_START", mode: nextMode });
 
-      if (msg.includes("Permission") || msg.includes("denied") || msg.includes("dismissed")) {
+      if (!result) {
+        setNotice("Scroomin's background service did not respond. Try reloading the extension.");
+        return;
+      }
+
+      setState(result.state);
+
+      if (!result.ok && (result.error.name === "NotAllowedError" || result.error.name === "SecurityError")) {
         setShowPermissionGuide(true);
-        setStatusMessage("Camera permission denied. Please allow camera access.");
-      } else {
-        // The raw message is shown in the error notice below, not repeated here.
-        setStatusMessage("Couldn't start the camera.");
+        setNotice("Camera permission denied. Please allow camera access.");
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const stopCameraMonitoring = async () => {
-    stopMonitorRef.current?.();
-    stopMonitorRef.current = null;
+  const stopProtection = async () => {
+    setLoading(true);
+    setNotice(null);
+    setShowPermissionGuide(false);
 
-    setProtectionEnabled(false);
-    setAttentionState("idle");
-    setStatusMessage("Protection is off.");
-
-    const success = await setActiveTabProtection(false);
-
-    if (!success) {
-      setStatusMessage("Stopped, but this tab could not be updated.");
+    try {
+      const result = await sendCommand({ type: "SCROOMIN_STOP" });
+      if (result) setState(result.state);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleProtectionToggle = async (enabled: boolean) => {
-    if (enabled) {
-      if (mode === "camera") {
-        await startCameraMonitoring();
-      } else {
-        setProtectionEnabled(true);
-        setStatusMessage("Manual protection enabled.");
-        await applyProtection(true);
-      }
-    } else {
-      if (isCameraMode) {
-        await stopCameraMonitoring();
-      } else {
-        setProtectionEnabled(false);
-        setStatusMessage("Protection is off.");
-        await applyProtection(false);
-      }
-    }
-  };
+  const handleProtectionToggle = (enabled: boolean) =>
+    enabled ? startProtection(mode) : stopProtection();
 
   const handleModeChange = async (newMode: Mode) => {
     if (newMode === mode) return;
+    await startProtection(newMode);
+  };
 
-    if (mode === "camera") {
-      await stopCameraMonitoring();
+  const handlePermissionGuideAction = async () => {
+    const permission = await getCameraPermission();
+
+    if (permission === "granted") {
+      await startProtection("camera");
+    } else if (permission === "denied") {
+      // A blocked permission cannot be re-prompted; the user must unblock it in site settings.
+      const origin = new URL(chrome.runtime.getURL("")).origin;
+      void chrome.tabs.create({ url: `chrome://settings/content/siteDetails?site=${encodeURIComponent(origin)}` });
     } else {
-      await applyProtection(false);
-    }
-
-    setMode(newMode);
-
-    if (newMode === "camera") {
-      await startCameraMonitoring();
-    } else {
-      setProtectionEnabled(true);
-      setStatusMessage("Manual protection enabled.");
-      await applyProtection(true);
+      void chrome.tabs.create({ url: chrome.runtime.getURL(PERMISSION_PAGE) });
     }
   };
 
-  const handlePermissionGuideAction = () => {
-    setShowPermissionGuide(false);
-    startCameraMonitoring();
-  };
+  const statusMessage = notice ?? describeState(state);
 
   // Single value that drives the viewfinder (glyph, color, label, scan line).
   const viewState: ViewState = loading
     ? "starting"
-    : attentionState === "error" && !protectionEnabled
+    : state.error
       ? "error"
       : !protectionEnabled
         ? "off"
         : isManualMode
           ? "manual"
-          : attentionState === "attending"
+          : state.attention === "attending"
             ? "attending"
-            : attentionState === "away"
+            : state.attention === "away"
               ? "away"
-              : attentionState === "multiple-faces"
+              : state.attention === "multiple-faces"
                 ? "multiple"
                 : "starting";
 
@@ -454,7 +445,7 @@ function Popup() {
           <div className="vf-readout" role={viewState === "error" ? "alert" : "status"}>
             <div className="vf-head">
               <span className="vf-state">{STATE_LABELS[viewState]}</span>
-              {isCameraMode && (
+              {cameraLive && (
                 <span className="vf-live">
                   <span className="vf-live-dot" aria-hidden="true" />
                   Camera on
@@ -467,7 +458,7 @@ function Popup() {
           <dl className="vf-meta">
             <div>
               <dt>Feed</dt>
-              <dd>{isCameraMode ? `${CAMERA.width}×${CAMERA.height}, ${CAMERA.frameRate} fps` : "Not in use"}</dd>
+              <dd>{cameraLive ? `${CAMERA.width}×${CAMERA.height}, ${CAMERA.frameRate} fps` : "Not in use"}</dd>
             </div>
             <div>
               <dt>Processing</dt>
@@ -499,21 +490,27 @@ function Popup() {
             <Icon name="camera" size={18} />
             <div>
               <strong>Camera access needed</strong>
-              <p>Click "Allow" in the browser prompt at the top-left to enable face detection.</p>
+              <p>Scroomin opens a tab to ask for camera access. Click "Allow" there, then reopen this popup and turn Protection on.</p>
               <button type="button" className="notice-btn" onClick={handlePermissionGuideAction}>
-                Try again
+                Set up camera access
               </button>
             </div>
           </div>
         )}
 
-        {cameraError && !showPermissionGuide && (
+        {state.error && !showPermissionGuide && (
           <div className="notice error" role="alert">
             <Icon name="alert" size={18} />
             <div>
-              <strong>Couldn't start the camera</strong>
-              <p>Check the camera permission and that the model files are bundled.</p>
-              <code>{cameraError}</code>
+              <strong>{protectionEnabled ? "The camera stopped working" : "Couldn't start the camera"}</strong>
+              <p>
+                {protectionEnabled
+                  ? "The screen stays covered. Turn protection off and on again to retry."
+                  : "Check the camera permission and that the model files are bundled."}
+              </p>
+              <code>
+                {state.error.name}: {state.error.message}
+              </code>
             </div>
           </div>
         )}
@@ -564,7 +561,6 @@ function Popup() {
         </details>
       </main>
 
-      <video ref={videoRef} muted playsInline className="camera-preview" />
     </div>
   );
 }

@@ -7,6 +7,12 @@ const LOCK_SVG = `
 </svg>
 `;
 
+/** What we were last told to do. The DOM can lag behind it during the fade-out. */
+let enabledState = false;
+/** True once the background has pushed a state to this page, so a late reply to our own query is ignored. */
+let receivedPush = false;
+let removeTimer: number | undefined;
+
 // Inject styles for the overlay (including ::before blur layer)
 function injectOverlayStyles() {
   if (document.getElementById("__scroomin_overlay_styles__")) return;
@@ -46,6 +52,7 @@ function injectOverlayStyles() {
       color: #fb7185;
       opacity: 0.9;
       filter: drop-shadow(0 0 12px rgba(251, 113, 133, 0.5));
+      transform: scale(0.9);
       transition: transform 0.3s ease-out;
       flex-shrink: 0;
     }
@@ -62,6 +69,11 @@ function injectOverlayStyles() {
 }
 
 function setProtection(enabled: boolean) {
+  enabledState = enabled;
+
+  // Cancel any pending removal, otherwise a quick off -> on would still delete the overlay.
+  window.clearTimeout(removeTimer);
+
   injectOverlayStyles();
 
   let overlay = document.getElementById(OVERLAY_ID);
@@ -83,33 +95,47 @@ function setProtection(enabled: boolean) {
       overlay.appendChild(text);
       document.documentElement.appendChild(overlay);
 
-      // Force reflow then animate in
-      overlay.offsetHeight;
-      overlay.style.opacity = "1";
-      lockIcon.style.transform = "scale(1)";
-    }
-  } else if (overlay) {
-    // Fade out animation
-    overlay.style.opacity = "0";
-    const lockIcon = overlay.querySelector(".lock-icon");
-    if (lockIcon) {
-      (lockIcon as HTMLElement).style.transform = "scale(0.9)";
+      // Force reflow so the fade-in animates
+      void overlay.offsetHeight;
     }
 
-    // Remove after animation completes
-    setTimeout(() => {
-      overlay?.remove();
+    // Also reverses a fade-out that is already in progress.
+    overlay.style.opacity = "1";
+    const lockIcon = overlay.querySelector<HTMLElement>(".lock-icon");
+    if (lockIcon) lockIcon.style.transform = "scale(1)";
+  } else if (overlay) {
+    overlay.style.opacity = "0";
+    const lockIcon = overlay.querySelector<HTMLElement>(".lock-icon");
+    if (lockIcon) lockIcon.style.transform = "scale(0.9)";
+
+    // Remove after the fade-out completes
+    removeTimer = window.setTimeout(() => {
+      document.getElementById(OVERLAY_ID)?.remove();
     }, 300);
   }
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "SCROOMIN_SET_PROTECTION") {
+    receivedPush = true;
     setProtection(Boolean(message.enabled));
-    sendResponse({ enabled: Boolean(message.enabled) });
+    sendResponse({ enabled: enabledState });
   } else if (message?.type === "SCROOMIN_GET_PROTECTION") {
-    const overlay = document.getElementById(OVERLAY_ID);
-    sendResponse({ enabled: !!overlay });
+    sendResponse({ enabled: enabledState });
   }
-  return true;
+
+  // sendResponse is always called synchronously, so the channel must not be kept open.
+  return false;
 });
+
+// A new page (or a reload) starts uncovered. Ask the background whether it should be covered.
+try {
+  chrome.runtime
+    .sendMessage({ type: "SCROOMIN_QUERY_COVER" })
+    .then((response: { covered?: boolean } | undefined) => {
+      if (!receivedPush && response?.covered) setProtection(true);
+    })
+    .catch(() => {});
+} catch {
+  // Extension context invalidated (the extension was reloaded). Nothing to do.
+}
