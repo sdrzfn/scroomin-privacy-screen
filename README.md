@@ -46,7 +46,7 @@ You can install Scroomin in two ways. The Chrome Web Store is the easiest option
 ### Method 1: Chrome Web Store
 
 1. Open the Scroomin page on the Chrome Web Store:
-   `<CHROME_WEB_STORE_LINK>`
+   `NOT AVAILABLE YET`
 2. Click **Add to Chrome**.
 3. Review the permission prompt and click **Add extension**.
 4. Click the puzzle piece icon in the Chrome toolbar and pin **Scroomin** so it is always one click away.
